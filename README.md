@@ -19,10 +19,10 @@ MCP client ──stdio──▶ server.mjs ──ws://localhost:3055──▶ MC
 **1. The server.** Node 18 or later. Nothing to clone. For Claude Code:
 
 ```sh
-claude mcp add -s user figma-bridge -- npx -y github:Seuketchi/figma-bridge
+claude mcp add -s user figma-bridge -- npx -y --allow-git=all github:Seuketchi/figma-bridge
 ```
 
-For another MCP client, the command is `npx` with the arguments `-y github:Seuketchi/figma-bridge`.
+For another MCP client, the command is `npx` with the arguments `-y --allow-git=all github:Seuketchi/figma-bridge` (npm 12 refuses GitHub packages without `--allow-git=all`).
 
 **2. The plugin.** Once it is on Figma Community, open its page and click **Open in…**; it then works in the browser and the desktop app, on any plan. Until then:
 

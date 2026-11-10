@@ -19,6 +19,6 @@ The client can:
 - read a frame as design data (layout, colours, type, components, variables and styles) to build it in code;
 - take screenshots of any frame.
 
-To use it, start the server with `npx -y github:Seuketchi/figma-bridge` (or add it to your MCP client), open this plugin and keep its window open. The dot turns green when the client is connected.
+To use it, start the server with `npx -y --allow-git=all github:Seuketchi/figma-bridge` (or add it to your MCP client), open this plugin and keep its window open. The dot turns green when the client is connected.
 
 The plugin talks only to localhost and sends nothing anywhere else. Scripts the client sends can change or delete anything in the open file, so use it with a client you trust.
