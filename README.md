@@ -1,6 +1,6 @@
 # figma-bridge
 
-Run Figma Plugin API scripts in an open Figma file from any MCP client (such as Claude Code), and get the result back: return values, errors and screenshots. No copying and pasting into a scripting plugin, no size limit, no paid plan, no dependencies.
+Run Figma Plugin API scripts in an open Figma file from any MCP client (such as Claude Code), and get the result back: return values, errors, design data and screenshots. No copying and pasting into a scripting plugin, no size limit, no paid plan, no dependencies.
 
 ```text
 MCP client ──stdio──▶ server.mjs ──ws://localhost:3055──▶ MCP Bridge plugin in Figma
@@ -11,20 +11,23 @@ MCP client ──stdio──▶ server.mjs ──ws://localhost:3055──▶ MC
 | `figma_status` | Whether the plugin is connected; the file, its pages, the selection and the top-level nodes. |
 | `figma_run` | Runs JavaScript as the body of an async function with `figma` in scope. Returns the `return` value, `print`/`console.log` lines, or the error. |
 | `figma_run_file` | The same, for a script file on disk (large generated scripts stay out of the conversation). |
+| `figma_read` | Reads a frame as design data for building it in code: layout and auto layout, fills, strokes, radius, effects, text styles, components and variant props, and variables and styles by name, plus a summary of what it uses. Optionally with a screenshot. |
 | `figma_screenshot` | Exports a node as PNG, returns the image and saves it to `shots/`. |
 
-## Needs
+## Install
 
-- Node 18 or later.
-- The Figma desktop app, because development plugins only load there. On Linux, the unofficial [figma-linux](https://github.com/Figma-Linux/figma-linux) app works; see below.
-- Any Figma plan, including the free one.
+**1. The server.** Node 18 or later. Nothing to clone. For Claude Code:
 
-## Set up
+```sh
+claude mcp add -s user figma-bridge -- npx -y github:Seuketchi/figma-bridge
+```
 
-1. Clone this repository.
-2. Add the server to your MCP client. For Claude Code:
-   `claude mcp add -s user figma-bridge -- node /path/to/figma-bridge/server.mjs`
-3. In Figma: press Ctrl+/ (Cmd+/ on a Mac), run **Import plugin from manifest** and pick `plugin/manifest.json`.
+For another MCP client, the command is `npx` with the arguments `-y github:Seuketchi/figma-bridge`.
+
+**2. The plugin.** Once it is on Figma Community, open its page and click **Open in…**; it then works in the browser and the desktop app, on any plan. Until then:
+
+1. Download `figma-bridge-plugin.zip` from the [latest release](https://github.com/Seuketchi/figma-bridge/releases/latest) and unzip it.
+2. In the Figma desktop app, press Ctrl+/ (Cmd+/ on a Mac), run **Import plugin from manifest** and pick `manifest.json` from that folder. Development plugins only load in the desktop app; on Linux the unofficial [figma-linux](https://github.com/Figma-Linux/figma-linux) app works (see below).
 
 ## Use
 

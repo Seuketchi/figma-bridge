@@ -18,13 +18,28 @@ let stdout = "";
 
 function fakeFigma(post) {
   const node = (id, name, extra = {}) => ({ id, name, type: "FRAME", x: 0, y: 0, width: 100, height: 50, children: [], ...extra });
-  const page = { id: "0:1", name: "Page 1", type: "PAGE", selection: [], children: [node("1:2", "Home", { exportAsync: async () => new Uint8Array([137, 80, 78, 71, 1, 2, 3]) })] };
+  const at = (x, y) => [[1, 0, x], [0, 1, y]];
+  const text = node("1:4", "Title", {
+    type: "TEXT", characters: "Hello", absoluteTransform: at(24, 24), textAlignHorizontal: "LEFT", textAutoResize: "WIDTH_AND_HEIGHT",
+    getStyledTextSegments: () => [{ characters: "Hello", fontName: { family: "Fraunces", style: "Bold" }, fontWeight: 700, fontSize: 48, lineHeight: { unit: "PIXELS", value: 52 }, letterSpacing: { unit: "PERCENT", value: -2 }, textCase: "ORIGINAL", textDecoration: "NONE", fills: [{ type: "SOLID", color: { r: 0.0667, g: 0.0941, b: 0.1529 }, boundVariables: { color: { id: "v1" } } }], textStyleId: "s1" }],
+  });
+  const card = node("1:3", "Card", {
+    absoluteTransform: at(0, 0), layoutMode: "VERTICAL", itemSpacing: 16, paddingTop: 24, paddingRight: 24, paddingBottom: 24, paddingLeft: 24,
+    primaryAxisAlignItems: "MIN", counterAxisAlignItems: "CENTER", cornerRadius: 12,
+    fills: [{ type: "SOLID", color: { r: 1, g: 1, b: 1 } }], strokes: [], effects: [{ type: "DROP_SHADOW", visible: true, offset: { x: 0, y: 4 }, radius: 12, spread: 0, color: { r: 0, g: 0, b: 0, a: 0.25 } }],
+    children: [text],
+  });
+  text.parent = card;
+  const page = { id: "0:1", name: "Page 1", type: "PAGE", selection: [], children: [node("1:2", "Home", { exportAsync: async () => new Uint8Array([137, 80, 78, 71, 1, 2, 3]) }), card] };
   return {
     root: { name: "Sample file", children: [page] },
     currentPage: page,
     showUI() {},
     ui: { onmessage: null, postMessage: post },
-    getNodeById: (id) => page.children.find((n) => n.id === id) || null,
+    getNodeByIdAsync: async (id) => [...page.children, text].find((n) => n.id === id) || null,
+    getStyleByIdAsync: async (id) => ({ s1: { name: "Heading/XL" } })[id] || null,
+    variables: { getVariableByIdAsync: async (id) => ({ v1: { name: "color/ink" } })[id] || null },
+    mixed: Symbol("mixed"),
     createRectangle: () => { const r = node(`9:${page.children.length}`, "Rectangle", { type: "RECTANGLE" }); page.children.push(r); return r; },
   };
 }
@@ -54,9 +69,9 @@ test("before the plugin connects, tools say how to open it", async () => {
   assert.match(r.result.content[0].text, /Plugins > Development > MCP Bridge/);
 });
 
-test("lists its four tools", async () => {
+test("lists its tools", async () => {
   const r = await rpc("tools/list");
-  assert.deepEqual(r.result.tools.map((t) => t.name), ["figma_status", "figma_run", "figma_run_file", "figma_screenshot"]);
+  assert.deepEqual(r.result.tools.map((t) => t.name), ["figma_status", "figma_run", "figma_run_file", "figma_read", "figma_screenshot"]);
 });
 
 test("a web page cannot connect", async () => {
@@ -99,6 +114,22 @@ test("the plugin connects and runs jobs", async (t) => {
     writeFileSync(file, `const S = "${"x".repeat(3_000_000)}";\nreturn S.length`);
     const r = await tool("figma_run_file", { path: file });
     assert.equal(r.result.content[0].text, "3000000");
+  });
+
+  await t.test("read returns layout, look, text and the names of variables and styles", async () => {
+    const r = JSON.parse((await tool("figma_read", { node_id: "1:3" })).result.content[0].text);
+    assert.deepEqual(r.tree.layout, { dir: "column", gap: 16, pad: [24, 24, 24, 24], main: "min", cross: "center" });
+    assert.deepEqual(r.tree.fills, ["#ffffff"]);
+    assert.equal(r.tree.radius, 12);
+    assert.deepEqual(r.tree.effects, [{ shadow: "0 4 12 0 #00000040" }]);
+    const t = r.tree.children[0];
+    assert.deepEqual(t.box, [24, 24, 100, 50]);
+    assert.equal(t.text, "Hello");
+    assert.equal(t.font, "Fraunces"); assert.equal(t.weight, 700); assert.equal(t.size, 48); assert.equal(t.lineHeight, 52); assert.equal(t.tracking, "-2%");
+    assert.deepEqual(t.color, { color: "#111827", variable: "color/ink" });
+    assert.equal(t.textStyle, "Heading/XL");
+    assert.equal(r.used.variables["color/ink"], "#111827");
+    assert.deepEqual(Object.keys(r.used.fonts), ["Fraunces Bold"]);
   });
 
   await t.test("a screenshot comes back as an image and a file", async () => {

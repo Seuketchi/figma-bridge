@@ -4,5 +4,20 @@
   "license": "MIT",
   "type": "module",
   "description": "Lets Claude Code run Plugin API scripts in an open Figma file and see the result. No dependencies.",
-  "scripts": { "start": "node server.mjs", "test": "node --test test/bridge.test.mjs" }
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test test/bridge.test.mjs"
+  },
+  "bin": {
+    "figma-bridge": "server.mjs"
+  },
+  "files": [
+    "server.mjs",
+    "plugin/",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
 }

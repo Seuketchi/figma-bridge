@@ -111,13 +111,18 @@ const TOOLS = [
   },
   {
     name: "figma_run",
-    description: "Run JavaScript in the open Figma file through the Plugin API, as the body of an async function with `figma` in scope (top-level await works). `print(...)` and `console.log(...)` are collected. Returns the value of a `return` statement, the printed lines, or the error with its stack.",
+    description: "Run JavaScript in the open Figma file through the Plugin API, as the body of an async function with `figma` in scope (top-level await works). `print(...)` and `console.log(...)` are collected. Returns the value of a `return` statement, the printed lines, or the error with its stack. The plugin uses dynamic-page access: use figma.getNodeByIdAsync, figma.setCurrentPageAsync and page.loadAsync() before reading another page.",
     inputSchema: { type: "object", properties: { code: { type: "string" }, timeout_s: { type: "number", description: "default 120" } }, required: ["code"] },
   },
   {
     name: "figma_run_file",
     description: "Run a JavaScript file from disk in Figma, the same way as figma_run. Use it for large generated scripts (such as Scripter scripts from the handoff tool) so they do not travel through the conversation.",
     inputSchema: { type: "object", properties: { path: { type: "string" }, timeout_s: { type: "number", description: "default 300" } }, required: ["path"] },
+  },
+  {
+    name: "figma_read",
+    description: "Read a frame or node as design data for building it in code: the node tree with boxes relative to the parent, auto layout (direction, gap, padding, alignment, sizing), fills, strokes, radius, effects, text with font, weight, size, line height, tracking and colour (runs when mixed), component and variant props, and bound variables and styles by name. Also a summary of the colours, fonts, variables and styles used. With no node_id it reads the selection, else the first top-level node. Set screenshot to also see it.",
+    inputSchema: { type: "object", properties: { node_id: { type: "string" }, depth: { type: "number", description: "levels to descend, default 12" }, max_nodes: { type: "number", description: "default 1500" }, screenshot: { type: "boolean" }, scale: { type: "number", description: "screenshot scale, default 1" } } },
   },
   {
     name: "figma_screenshot",
@@ -145,6 +150,15 @@ async function call(name, args = {}) {
     case "figma_run_file": {
       const code = readFileSync(resolve(args.path), "utf8");
       return runResult(await send({ kind: "run", code }, (args.timeout_s || 300) * 1000));
+    }
+    case "figma_read": {
+      const r = await send({ kind: "read", nodeId: args.node_id, depth: args.depth, maxNodes: args.max_nodes }, 120000);
+      const out = { content: [{ type: "text", text: JSON.stringify(r) }] };
+      if (args.screenshot) {
+        const shot = await call("figma_screenshot", { node_id: r.node.id, scale: args.scale });
+        out.content.unshift(...shot.content);
+      }
+      return out;
     }
     case "figma_screenshot": {
       const r = await send({ kind: "shot", nodeId: args.node_id, scale: args.scale || 1 }, 60000);
