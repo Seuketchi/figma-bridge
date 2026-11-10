@@ -210,6 +210,8 @@ figma.ui.onmessage = async (msg) => {
     else throw new Error(`unknown job ${kind}`);
     figma.ui.postMessage({ id, ok: true, result });
   } catch (e) {
-    figma.ui.postMessage({ id, ok: false, error: String((e && e.stack) || e) });
+    const message = e && e.message ? e.message : String(e);
+    const stack = e && e.stack && !String(e.stack).includes(message) ? "\n" + e.stack : "";
+    figma.ui.postMessage({ id, ok: false, error: message + stack });
   }
 };

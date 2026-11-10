@@ -111,7 +111,7 @@ const TOOLS = [
   },
   {
     name: "figma_run",
-    description: "Run JavaScript in the open Figma file through the Plugin API, as the body of an async function with `figma` in scope (top-level await works). `print(...)` and `console.log(...)` are collected. Returns the value of a `return` statement, the printed lines, or the error with its stack. The plugin uses dynamic-page access: use figma.getNodeByIdAsync, figma.setCurrentPageAsync and page.loadAsync() before reading another page.",
+    description: "Run JavaScript in the open Figma file through the Plugin API, as the body of an async function with `figma` in scope (top-level await works). `print(...)` and `console.log(...)` are collected. Returns the value of a `return` statement, the printed lines, or the error with its stack. The plugin uses dynamic-page access: use figma.getNodeByIdAsync, figma.setCurrentPageAsync and page.loadAsync() before reading another page. A layer whose fonts are missing cannot be moved into another parent or re-stacked (appendChild, insertChild), only moved by x and y.",
     inputSchema: { type: "object", properties: { code: { type: "string" }, timeout_s: { type: "number", description: "default 120" } }, required: ["code"] },
   },
   {
