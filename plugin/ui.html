@@ -1,0 +1,40 @@
+<style>
+  body { font: 12px/1.4 Inter, system-ui, sans-serif; margin: 12px; color: var(--figma-color-text, #222); background: var(--figma-color-bg, #fff); }
+  b { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #c33; margin-right: 6px; }
+  b.on { background: #2a2; }
+  small { color: var(--figma-color-text-secondary, #777); }
+</style>
+<div><b id="dot"></b><span id="state">Looking for the bridge…</span></div>
+<small id="last">Keep this open while your assistant works.</small>
+<script>
+  const URL_ = "ws://localhost:3055";
+  const dot = document.getElementById("dot"), state = document.getElementById("state"), last = document.getElementById("last");
+  let ws = null, jobs = 0;
+
+  function b64(bytes) {
+    let s = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(s);
+  }
+
+  function connect() {
+    ws = new WebSocket(URL_);
+    ws.onopen = () => { dot.className = "on"; state.textContent = "Connected"; };
+    ws.onclose = () => { dot.className = ""; state.textContent = "Looking for the bridge…"; setTimeout(connect, 1500); };
+    ws.onerror = () => {};
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+      last.textContent = `Job ${++jobs}: ${msg.kind}`;
+      parent.postMessage({ pluginMessage: msg }, "*");
+    };
+  }
+
+  onmessage = (e) => {
+    const msg = e.data.pluginMessage;
+    if (!msg || !ws || ws.readyState !== 1) return;
+    if (msg.ok && msg.result && msg.result.bytes) msg.result.png = b64(msg.result.bytes), delete msg.result.bytes;
+    ws.send(JSON.stringify(msg));
+  };
+
+  connect();
+</script>
