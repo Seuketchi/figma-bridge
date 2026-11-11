@@ -17,5 +17,6 @@
     ],
     "reasoning": "Connects only to the figma-bridge server running on this computer."
   },
-  "documentAccess": "dynamic-page"
+  "documentAccess": "dynamic-page",
+  "enablePrivatePluginApi": true
 }
