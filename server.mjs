@@ -5,11 +5,14 @@ import { createServer } from "node:http";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 const PORT = Number(process.env.FIGMA_BRIDGE_PORT || 3055);
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SHOTS = process.env.FIGMA_BRIDGE_SHOTS || join(HERE, "shots");
+const API = process.env.FIGMA_API_URL || "https://api.figma.com";
+const TOKEN_FILE = join(homedir(), ".config", "figma-bridge", "token");
 const log = (...a) => process.stderr.write(`[figma-bridge] ${a.join(" ")}\n`);
 
 // ---------- WebSocket (RFC 6455, server side, text frames only) ----------
@@ -125,6 +128,11 @@ const TOOLS = [
     inputSchema: { type: "object", properties: { node_id: { type: "string" }, depth: { type: "number", description: "levels to descend, default 12" }, max_nodes: { type: "number", description: "default 1500" }, screenshot: { type: "boolean" }, scale: { type: "number", description: "screenshot scale, default 1" } } },
   },
   {
+    name: "figma_comments",
+    description: "Read the comments on a Figma file as threads: who wrote each one, when, the text, whether it is resolved, the node it is pinned to (with the node's name when the plugin is open on that file) and the replies. The Plugin API cannot see comments, so this uses Figma's REST API with a personal access token from FIGMA_TOKEN or ~/.config/figma-bridge/token. With no file_key it uses the file open in the plugin.",
+    inputSchema: { type: "object", properties: { file_key: { type: "string", description: "file key or figma.com URL; default: the open file" }, node_id: { type: "string", description: "only threads pinned to this node or inside it" }, unresolved: { type: "boolean", description: "only threads that are not resolved" } } },
+  },
+  {
     name: "figma_screenshot",
     description: "Export a node as PNG and show it. With no node_id it uses the first selected node, else the first top-level node of the page. The PNG is also saved to disk and its path returned.",
     inputSchema: { type: "object", properties: { node_id: { type: "string" }, scale: { type: "number", description: "default 1; keep the image under 8000 px a side" }, save_to: { type: "string" } } },
@@ -160,6 +168,8 @@ async function call(name, args = {}) {
       }
       return out;
     }
+    case "figma_comments":
+      return text(await comments(args));
     case "figma_screenshot": {
       const r = await send({ kind: "shot", nodeId: args.node_id, scale: args.scale || 1 }, 60000);
       const file = args.save_to ? resolve(args.save_to) : join(SHOTS, `${r.node.id.replace(/[^\w-]/g, "_")}-${Date.now()}.png`);
@@ -170,6 +180,47 @@ async function call(name, args = {}) {
     default:
       throw Object.assign(new Error(`unknown tool ${name}`), { code: -32602 });
   }
+}
+
+function token() {
+  if (process.env.FIGMA_TOKEN) return process.env.FIGMA_TOKEN.trim();
+  try { return readFileSync(TOKEN_FILE, "utf8").trim(); } catch { return ""; }
+}
+
+async function comments(args) {
+  const tok = token();
+  if (!tok) throw new Error(`Comments need a Figma personal access token with the file_comments:read scope (Figma > Settings > Security > Personal access tokens). Put it in ${TOKEN_FILE} or set FIGMA_TOKEN.`);
+  let key = args.file_key?.match(/figma\.com\/(?:file|design|board|proto)\/([\w-]+)/)?.[1] || args.file_key;
+  if (!key) {
+    if (!socket) throw new Error("Give file_key, or open the MCP Bridge plugin in the file.");
+    key = (await send({ kind: "info" }, 15000)).fileKey;
+    if (!key) throw new Error("The plugin did not report the file key (reload the plugin after updating it), so give file_key.");
+  }
+  const res = await fetch(`${API}/v1/files/${encodeURIComponent(key)}/comments?as_md=true`, { headers: { "X-Figma-Token": tok } });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`Figma API ${res.status}: ${body.err || body.message || res.statusText}`);
+  const list = body.comments || [];
+  const nodeOf = (c) => c.client_meta?.node_id || null;
+  const at = (c) => ({ id: c.id, by: c.user?.handle, at: c.created_at, text: c.message });
+  let threads = list.filter((c) => !c.parent_id).map((c) => ({
+    ...at(c), resolved: !!c.resolved_at, node: nodeOf(c),
+    replies: list.filter((r) => r.parent_id === c.id).sort((a, b) => a.created_at.localeCompare(b.created_at)).map(at),
+  }));
+  if (args.unresolved) threads = threads.filter((t) => !t.resolved);
+  // Node names, and which nodes sit inside node_id, come from the plugin when it is open on this file.
+  const ids = [...new Set(threads.map((t) => t.node).filter(Boolean))];
+  let names = {};
+  if (socket && ids.length) {
+    try {
+      const code = `const out = {}; for (const id of ${JSON.stringify(ids)}) { const n = await figma.getNodeByIdAsync(id); if (!n) continue; const path = []; for (let p = n; p && p.type !== "DOCUMENT"; p = p.parent) path.push(p.id); out[id] = { name: n.name, path }; } return out;`;
+      const r = await send({ kind: "run", code }, 30000);
+      names = r.value || {};
+    } catch { names = {}; }
+  }
+  if (args.node_id) threads = threads.filter((t) => t.node === args.node_id || names[t.node]?.path.includes(args.node_id));
+  for (const t of threads) if (t.node) t.node = names[t.node] ? { id: t.node, name: names[t.node].name } : { id: t.node };
+  threads.sort((a, b) => b.at.localeCompare(a.at));
+  return { file: key, threads: threads.length, open: threads.filter((t) => !t.resolved).length, comments: threads };
 }
 
 const reply = (msg) => process.stdout.write(JSON.stringify(msg) + "\n");

@@ -7,12 +7,20 @@ import { readFileSync, writeFileSync, mkdtempSync, existsSync, rmSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import vm from "node:vm";
+import { createServer } from "node:http";
 import { setTimeout as wait } from "node:timers/promises";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const PORT = 3999;
 const DIR = mkdtempSync(join(tmpdir(), "bridge-test-"));
-let server, ws, seq = 0;
+let server, ws, api, seq = 0;
+const API_PORT = 3998;
+const COMMENTS = [
+  { id: "10", message: "Make the title **bigger**", user: { handle: "ana" }, created_at: "2026-11-10T09:00:00Z", resolved_at: null, client_meta: { node_id: "1:4", node_offset: { x: 1, y: 1 } } },
+  { id: "11", parent_id: "10", message: "On it", user: { handle: "tan" }, created_at: "2026-11-10T10:00:00Z", resolved_at: null },
+  { id: "12", message: "Old note", user: { handle: "ana" }, created_at: "2026-11-09T09:00:00Z", resolved_at: "2026-11-09T12:00:00Z", client_meta: { node_id: "1:2" } },
+  { id: "13", message: "Loose pin on the canvas", user: { handle: "ben" }, created_at: "2026-11-11T09:00:00Z", resolved_at: null, client_meta: { x: 5, y: 5 } },
+];
 const answers = new Map();
 let stdout = "";
 
@@ -33,6 +41,7 @@ function fakeFigma(post) {
   const page = { id: "0:1", name: "Page 1", type: "PAGE", selection: [], children: [node("1:2", "Home", { exportAsync: async () => new Uint8Array([137, 80, 78, 71, 1, 2, 3]) }), card] };
   return {
     root: { name: "Sample file", children: [page] },
+    fileKey: "KEY123",
     currentPage: page,
     showUI() {},
     ui: { onmessage: null, postMessage: post },
@@ -52,7 +61,13 @@ function rpc(method, params) {
 const tool = (name, args = {}) => rpc("tools/call", { name, arguments: args });
 
 before(async () => {
-  server = spawn(process.execPath, [join(ROOT, "server.mjs")], { env: { ...process.env, FIGMA_BRIDGE_PORT: PORT, FIGMA_BRIDGE_SHOTS: DIR } });
+  // A stand-in for Figma's REST API.
+  api = createServer((req, res) => {
+    const ok = req.headers["x-figma-token"] === "test-token" && req.url === "/v1/files/KEY123/comments?as_md=true";
+    res.writeHead(ok ? 200 : 403, { "content-type": "application/json" });
+    res.end(JSON.stringify(ok ? { comments: COMMENTS } : { status: 403, err: "Invalid token" }));
+  }).listen(API_PORT, "127.0.0.1");
+  server = spawn(process.execPath, [join(ROOT, "server.mjs")], { env: { ...process.env, FIGMA_BRIDGE_PORT: PORT, FIGMA_BRIDGE_SHOTS: DIR, FIGMA_API_URL: `http://127.0.0.1:${API_PORT}`, FIGMA_TOKEN: "test-token" } });
   server.stdout.on("data", (c) => {
     stdout += c;
     let nl;
@@ -61,7 +76,7 @@ before(async () => {
   await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "0" } });
 });
 
-after(() => { ws?.close(); server.kill(); rmSync(DIR, { recursive: true, force: true }); });
+after(() => { ws?.close(); server.kill(); api.close(); rmSync(DIR, { recursive: true, force: true }); });
 
 test("before the plugin connects, tools say how to open it", async () => {
   const r = await tool("figma_run", { code: "return 1" });
@@ -71,7 +86,26 @@ test("before the plugin connects, tools say how to open it", async () => {
 
 test("lists its tools", async () => {
   const r = await rpc("tools/list");
-  assert.deepEqual(r.result.tools.map((t) => t.name), ["figma_status", "figma_run", "figma_run_file", "figma_read", "figma_screenshot"]);
+  assert.deepEqual(r.result.tools.map((t) => t.name), ["figma_status", "figma_run", "figma_run_file", "figma_read", "figma_comments", "figma_screenshot"]);
+});
+
+test("comments by file URL work without the plugin", async () => {
+  const r = JSON.parse((await tool("figma_comments", { file_key: "https://www.figma.com/design/KEY123/Sample?node-id=1-2" })).result.content[0].text);
+  assert.equal(r.file, "KEY123");
+  assert.equal(r.threads, 3);
+  assert.equal(r.open, 2);
+  assert.deepEqual(r.comments.map((c) => c.id), ["13", "10", "12"]);
+  assert.deepEqual(r.comments[1].replies, [{ id: "11", by: "tan", at: "2026-11-10T10:00:00Z", text: "On it" }]);
+  assert.deepEqual(r.comments[1].node, { id: "1:4" });
+  assert.equal(r.comments[0].node, null);
+});
+
+test("comments report a bad token and a missing file key", async () => {
+  let r = await tool("figma_comments", { file_key: "OTHER" });
+  assert.equal(r.result.isError, true);
+  assert.match(r.result.content[0].text, /Figma API 403: Invalid token/);
+  r = await tool("figma_comments");
+  assert.match(r.result.content[0].text, /Give file_key/);
 });
 
 test("a web page cannot connect", async () => {
@@ -130,6 +164,15 @@ test("the plugin connects and runs jobs", async (t) => {
     assert.equal(t.textStyle, "Heading/XL");
     assert.equal(r.used.variables["color/ink"], "#111827");
     assert.deepEqual(Object.keys(r.used.fonts), ["Fraunces Bold"]);
+  });
+
+  await t.test("comments use the open file, name their nodes and filter by node", async () => {
+    let r = JSON.parse((await tool("figma_comments", { unresolved: true })).result.content[0].text);
+    assert.equal(r.file, "KEY123");
+    assert.deepEqual(r.comments.map((c) => c.id), ["13", "10"]);
+    assert.deepEqual(r.comments[1].node, { id: "1:4", name: "Title" });
+    r = JSON.parse((await tool("figma_comments", { node_id: "1:3" })).result.content[0].text);
+    assert.deepEqual(r.comments.map((c) => c.id), ["10"]);
   });
 
   await t.test("a screenshot comes back as an image and a file", async () => {

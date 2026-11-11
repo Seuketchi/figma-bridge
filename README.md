@@ -12,6 +12,7 @@ MCP client ──stdio──▶ server.mjs ──ws://localhost:3055──▶ MC
 | `figma_run` | Runs JavaScript as the body of an async function with `figma` in scope. Returns the `return` value, `print`/`console.log` lines, or the error. |
 | `figma_run_file` | The same, for a script file on disk (large generated scripts stay out of the conversation). |
 | `figma_read` | Reads a frame as design data for building it in code: layout and auto layout, fills, strokes, radius, effects, text styles, components and variant props, and variables and styles by name, plus a summary of what it uses. Optionally with a screenshot. |
+| `figma_comments` | Reads the file's comments as threads: author, time, text, resolved or not, the node each is pinned to (named, when the plugin is open on that file) and replies. Filters: `unresolved`, `node_id`. |
 | `figma_screenshot` | Exports a node as PNG, returns the image and saves it to `shots/`. |
 
 ## Install
@@ -35,13 +36,17 @@ Open a file, then run **Plugins > Development > MCP Bridge** and keep its small 
 
 One server holds the port at a time. A second one waits and takes over when the port is free. Set `FIGMA_BRIDGE_PORT` to use another port (and change it in `plugin/manifest.json` and `plugin/ui.html`).
 
+### Comments
+
+The Plugin API cannot see comments, so `figma_comments` reads them from Figma's REST API. It needs a personal access token with the `file_comments:read` scope (Figma > Settings > Security > Personal access tokens). Save it to `~/.config/figma-bridge/token` or set `FIGMA_TOKEN`. With no `file_key`, it uses the file open in the plugin (the development plugin reports its key; reload the plugin after updating).
+
 `node scripts/probe.mjs [node-id]` checks the whole path without an MCP client: it waits for the plugin, runs a read-only script and takes a screenshot.
 
 ## Security
 
 Whatever the MCP client sends runs in your open Figma file with the full Plugin API, as your account, and can change or delete anything in the file. Use it with a client you trust, and keep version history in mind.
 
-The server listens on 127.0.0.1 only and refuses WebSocket connections from web pages (any `Origin` other than the plugin's `null`). Nothing leaves your computer except what Figma itself sends.
+The server listens on 127.0.0.1 only and refuses WebSocket connections from web pages (any `Origin` other than the plugin's `null`). Nothing leaves your computer except what Figma itself sends, and, for `figma_comments`, a request to `api.figma.com` with your token. The token stays in the file or variable you put it in.
 
 ## figma-linux notes
 

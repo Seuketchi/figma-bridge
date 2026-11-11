@@ -34,6 +34,7 @@ function info() {
   const sel = figma.currentPage.selection.map((n) => ({ id: n.id, type: n.type, name: n.name }));
   return {
     file: figma.root.name,
+    fileKey: figma.fileKey,
     page: { id: figma.currentPage.id, name: figma.currentPage.name },
     pages: figma.root.children.map((p) => ({ id: p.id, name: p.name })),
     selection: sel,
